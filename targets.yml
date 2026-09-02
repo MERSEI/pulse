@@ -1,0 +1,26 @@
+# Реальные сервисы. Список правится вместе с инфраструктурой.
+
+http:
+  - name: portfolio
+    url: https://alexfialko.vercel.app
+    expect: [200]
+    expect_body: "Fialko"
+
+  - name: ai-integrator
+    url: https://ai-integrator-landing.vercel.app
+    expect: [200]
+
+  - name: sporysh
+    url: https://sporysh.pp.ua
+    expect: [200]
+    timeout: 20
+
+  - name: primex
+    url: https://primex.com.ua
+    expect: [200]
+    timeout: 20
+
+  - name: qr-creator
+    url: https://qr-creator-v1.vercel.app
+    expect: [200]
+

@@ -11,7 +11,7 @@ from aiogram import Bot
 
 from . import bot as bot_module
 from .alerting import AlertPolicy
-from .config import ConfigError, Settings, load
+from .config import ConfigError, Settings, load, load_dotenv
 from .monitor import Monitor
 from .probes.base import Probe
 from .probes.http import HttpProbe
@@ -64,21 +64,43 @@ async def run(settings: Settings, once: bool) -> int:
         remind_after=settings.remind_after,
     )
 
+    if once:
+        # Диагностика конфигурации: ни бота, ни токена Telegram не требуется —
+        # иначе первую проверку «а вижу ли я вообще свои сервисы» нельзя было
+        # бы сделать, не заведя сначала бота.
+        monitor = Monitor(settings, store, probes, policy, None, railway)
+        icon = {"ok": "OK  ", "fail": "FAIL", "unknown": "??  "}
+        for result in await monitor.tick():
+            mark = icon.get(result.health.value, "    ")
+            print(f"{mark} {result.target}: {result.summary}")
+        return 0
+
+    if not settings.telegram_enabled:
+        log.error(
+            "Для постоянного режима нужны PULSE_TELEGRAM_TOKEN и "
+            "PULSE_TELEGRAM_CHAT_ID. Разовый прогон доступен: pulse --once"
+        )
+        return 2
+
     bot = Bot(token=settings.telegram_token)
     monitor = Monitor(settings, store, probes, policy, bot, railway)
 
     try:
-        if once:
-            # Один прогон без бота: удобно для проверки конфигурации и для cron.
-            for result in await monitor.tick():
-                print(f"{result.health.value:8} {result.target}: {result.summary}")
-            return 0
-
         dp = bot_module.build_dispatcher(settings, store, railway)
-        await asyncio.gather(
-            monitor.run_forever(),
-            bot_module.start_polling(bot, dp),
+        # Падение любой из двух задач должно валить процесс целиком: watchdog,
+        # у которого молча умер цикл проверок и остался жив бот, — худший
+        # вариант из возможных, он выглядит работающим.
+        done, pending = await asyncio.wait(
+            [
+                asyncio.create_task(monitor.run_forever()),
+                asyncio.create_task(bot_module.start_polling(bot, dp)),
+            ],
+            return_when=asyncio.FIRST_EXCEPTION,
         )
+        for task in pending:
+            task.cancel()
+        for task in done:
+            task.result()  # пробрасываем исключение, если оно было
         return 0
     finally:
         await bot.session.close()
@@ -100,6 +122,15 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s  %(levelname)-7s %(name)s  %(message)s",
         datefmt="%H:%M:%S",
     )
+
+    # httpx логирует каждый запрос на INFO. При десятке таргетов раз в три
+    # минуты это единственное, что будет в логе, и в нём утонут собственные
+    # сообщения о падениях — ради которых лог и читают.
+    if not args.verbose:
+        for noisy in ("httpx", "httpcore", "aiogram.event"):
+            logging.getLogger(noisy).setLevel(logging.WARNING)
+
+    load_dotenv()
 
     try:
         settings = load(args.targets)

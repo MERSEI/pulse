@@ -21,10 +21,32 @@ class ConfigError(RuntimeError):
     pass
 
 
+def load_dotenv(path: Path | str = ".env") -> None:
+    """Подтянуть .env в окружение, не перетирая уже заданное.
+
+    Своя реализация вместо python-dotenv: нужен разбор `KEY=value` и
+    ничего больше, а лишняя зависимость — лишняя причина, по которой
+    установка может не пройти.
+    """
+    file = Path(path)
+    if not file.exists():
+        return
+
+    for raw in file.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
 @dataclass(frozen=True)
 class Settings:
-    telegram_token: str
-    telegram_chat_id: str
+    telegram_token: str | None
+    telegram_chat_id: str | None
     db_path: Path
     interval: timedelta
     failure_threshold: int
@@ -40,19 +62,16 @@ class Settings:
     triage_enabled: bool = True
 
     @property
+    def telegram_enabled(self) -> bool:
+        return bool(self.telegram_token and self.telegram_chat_id)
+
+    @property
     def railway_enabled(self) -> bool:
         return bool(self.railway_token and self.railway_projects)
 
     @property
     def vercel_enabled(self) -> bool:
         return bool(self.vercel_token and self.vercel_projects)
-
-
-def _require(name: str) -> str:
-    value = os.environ.get(name)
-    if not value:
-        raise ConfigError(f"Не задана обязательная переменная {name}")
-    return value
 
 
 def _int(name: str, default: int) -> int:
@@ -102,8 +121,8 @@ def load(targets_path: Path | str = "targets.yml") -> Settings:
     endpoints, railway_projects, vercel_projects = load_targets(Path(targets_path))
 
     return Settings(
-        telegram_token=_require("PULSE_TELEGRAM_TOKEN"),
-        telegram_chat_id=_require("PULSE_TELEGRAM_CHAT_ID"),
+        telegram_token=os.environ.get("PULSE_TELEGRAM_TOKEN") or None,
+        telegram_chat_id=os.environ.get("PULSE_TELEGRAM_CHAT_ID") or None,
         db_path=Path(os.environ.get("PULSE_DB_PATH", "./data/pulse.db")),
         interval=timedelta(seconds=_int("PULSE_INTERVAL_SECONDS", 180)),
         failure_threshold=_int("PULSE_FAILURE_THRESHOLD", 2),

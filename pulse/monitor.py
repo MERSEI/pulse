@@ -26,7 +26,7 @@ class Monitor:
         store: Store,
         probes: list[Probe],
         policy: AlertPolicy,
-        bot: Bot,
+        bot: Bot | None = None,
         railway: RailwayClient | None = None,
     ):
         self._settings = settings
@@ -76,6 +76,14 @@ class Monitor:
             self._store.close_incident(result.target, result.at)
 
         log.info("%s: %s", result.target, decision.action.value)
+
+        if self._bot is None or not self._settings.telegram_enabled:
+            # Прогон без бота (--once, диагностика конфигурации): состояние
+            # обновляем и инцидент фиксируем, но слать некуда.
+            log.warning(
+                "%s — %s, но Telegram не настроен", result.target, decision.action.value
+            )
+            return
 
         await notify.send(
             self._bot,
