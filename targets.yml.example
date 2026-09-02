@@ -1,0 +1,28 @@
+# Что проверяет Pulse. Файл лежит в репозитории намеренно: список сервисов
+# меняется вместе с инфраструктурой, и его история в git полезна.
+# Секреты сюда не попадают — токены живут в переменных окружения.
+
+http:
+  - name: portfolio
+    url: https://example.vercel.app
+    expect: [200]
+    # Ловит случай «200, но отрисовалась страница ошибки»
+    expect_body: "Оleksandr"
+
+  - name: bot-api
+    url: https://bot.example.up.railway.app/health
+    expect: [200]
+    timeout: 10
+
+  # Закрытый эндпоинт: 401 здесь означает, что сервис жив
+  - name: admin
+    url: https://admin.example.com/api/me
+    expect: [401]
+
+railway:
+  projects:
+    - 00000000-0000-0000-0000-000000000000
+
+vercel:
+  projects:
+    - prj_xxxxxxxxxxxxxxxxxxxxxxxx
